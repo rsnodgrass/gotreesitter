@@ -43,7 +43,6 @@ type Parser struct {
 	maxConflictWidth                    int  // widest N-way conflict in the parse table
 	timeoutMicros                       uint64
 	cancellationFlag                    *uint32
-	glrMaxStacks                        int // per-parser GLR stack cap; 0 = use global default
 	denseLimit                          int
 	smallBase                           int
 	smallLookup                         [][]smallActionPair

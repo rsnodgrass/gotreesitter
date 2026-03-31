@@ -381,10 +381,6 @@ func shouldRunInitialFullParseMergeRetry(tree *Tree) bool {
 
 func (p *Parser) retryFullParse(source []byte, initialMaxStacks int, tree *Tree, runRetry fullParseRetryRunner) *Tree {
 	maxStacksOverride := fullParseRetryMaxStacksOverride(tree, len(source), initialMaxStacks)
-	// Honour any per-parser GLR stack cap for the retry phase.
-	if p.glrMaxStacks > 0 && maxStacksOverride > p.glrMaxStacks {
-		maxStacksOverride = p.glrMaxStacks
-	}
 	maxNodesOverride := fullParseRetryNodeLimitOverride(tree, len(source))
 	retryMaxStacks := initialMaxStacks
 	if maxStacksOverride > 0 {

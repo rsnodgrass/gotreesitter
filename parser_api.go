@@ -206,31 +206,6 @@ func (p *Parser) CancellationFlag() *uint32 {
 	return p.cancellationFlag
 }
 
-// SetGLRMaxStacks caps the number of active GLR stacks during full parses,
-// including retry passes. A value of 0 restores the default behaviour
-// (controlled by the GOT_GLR_MAX_STACKS env var, default 8, retry up to 32).
-// Reducing this value lowers peak memory at the cost of potentially less
-// accurate error recovery on highly ambiguous inputs. Useful for child parsers
-// in injection scenarios (e.g. capping the markdown parent parser to 8 stacks
-// prevents the 32-stack retry from consuming hundreds of MB per document).
-func (p *Parser) SetGLRMaxStacks(n int) {
-	if p == nil {
-		return
-	}
-	if n < 0 {
-		n = 0
-	}
-	p.glrMaxStacks = n
-}
-
-// GLRMaxStacks returns the per-parser GLR stack cap, or 0 if using the global default.
-func (p *Parser) GLRMaxStacks() int {
-	if p == nil {
-		return 0
-	}
-	return p.glrMaxStacks
-}
-
 // SetIncludedRanges configures parser include ranges.
 // Tokens outside these ranges are skipped.
 func (p *Parser) SetIncludedRanges(ranges []Range) {
@@ -248,16 +223,6 @@ func (p *Parser) IncludedRanges() []Range {
 	out := make([]Range, len(p.included))
 	copy(out, p.included)
 	return out
-}
-
-// effectiveInitialMaxStacks returns the initial GLR stack count for a full parse,
-// capped by any per-parser override set via SetGLRMaxStacks.
-func (p *Parser) effectiveInitialMaxStacks() int {
-	n := fullParseInitialMaxStacks(p.language, p.maxConflictWidth)
-	if p.glrMaxStacks > 0 && p.glrMaxStacks < n {
-		return p.glrMaxStacks
-	}
-	return n
 }
 
 func (p *Parser) wrapIncludedRanges(ts TokenSource) TokenSource {
@@ -347,7 +312,7 @@ func (p *Parser) Parse(source []byte) (*Tree, error) {
 	lexer := NewLexer(p.language.LexStates, source)
 	ts := acquireDFATokenSource(lexer, p.language, p.lookupActionIndex, p.hasKeywordState)
 	deterministicExternalConflicts := fullParseUsesDeterministicExternalConflicts(p.language)
-	initialMaxStacks := p.effectiveInitialMaxStacks()
+	initialMaxStacks := fullParseInitialMaxStacks(p.language, p.maxConflictWidth)
 	tree := p.parseInternal(source, p.wrapIncludedRanges(ts), nil, nil, arenaClassFull, nil, initialMaxStacks, 0, 0, deterministicExternalConflicts)
 	tree = p.retryFullParseWithDFA(source, initialMaxStacks, deterministicExternalConflicts, tree)
 	if shouldRepeatExternalScannerFullParse(p.language, tree) {
@@ -370,7 +335,7 @@ func (p *Parser) ParseWithTokenSource(source []byte, ts TokenSource) (*Tree, err
 		p.reparseFactory = prevFactory
 	}()
 	deterministicExternalConflicts := fullParseUsesDeterministicExternalConflicts(p.language)
-	initialMaxStacks := p.effectiveInitialMaxStacks()
+	initialMaxStacks := fullParseInitialMaxStacks(p.language, p.maxConflictWidth)
 	tree := p.parseInternal(source, p.wrapIncludedRanges(ts), nil, nil, arenaClassFull, nil, initialMaxStacks, 0, 0, deterministicExternalConflicts)
 	tree = p.retryFullParseWithTokenSource(source, ts, initialMaxStacks, deterministicExternalConflicts, tree)
 	if shouldRepeatExternalScannerFullParse(p.language, tree) {

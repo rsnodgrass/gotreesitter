@@ -37,8 +37,6 @@ type InjectionParser struct {
 	injectionQueries map[string]*Query
 	// parsers caches Parser instances per language for reuse.
 	parsers map[string]*Parser
-	// glrMaxStacks maps language name -> GLR stack cap for that language's parser.
-	glrMaxStacks map[string]int
 	// maxDepth limits nested injection recursion. Zero means use default.
 	maxDepth int
 }
@@ -55,26 +53,6 @@ func NewInjectionParser() *InjectionParser {
 // RegisterLanguage adds a language that can be used as parent or child.
 func (ip *InjectionParser) RegisterLanguage(name string, lang *Language) {
 	ip.languages[name] = lang
-}
-
-// SetLanguageMaxGLRStacks caps the GLR stack count for the named language's
-// parser. This is a memory–quality trade-off: lower values reduce peak memory
-// on ambiguous inputs (e.g. a markdown parent parser with hundreds of code
-// blocks) at the cost of potentially less accurate error recovery.
-// A value of 0 restores the default behaviour.
-func (ip *InjectionParser) SetLanguageMaxGLRStacks(lang string, n int) {
-	if ip.glrMaxStacks == nil {
-		ip.glrMaxStacks = make(map[string]int)
-	}
-	if n <= 0 {
-		delete(ip.glrMaxStacks, lang)
-	} else {
-		ip.glrMaxStacks[lang] = n
-	}
-	// Apply immediately if the parser is already cached.
-	if p, ok := ip.parsers[lang]; ok {
-		p.SetGLRMaxStacks(n)
-	}
 }
 
 // RegisterInjectionQuery sets the injection query for a parent language.
@@ -399,11 +377,6 @@ func (ip *InjectionParser) getParser(name string, lang *Language) *Parser {
 		return p
 	}
 	p := NewParser(lang)
-	if ip.glrMaxStacks != nil {
-		if n, ok := ip.glrMaxStacks[name]; ok {
-			p.SetGLRMaxStacks(n)
-		}
-	}
 	ip.parsers[name] = p
 	return p
 }
