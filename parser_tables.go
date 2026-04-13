@@ -4,7 +4,7 @@ import "sort"
 
 const smallTokenDenseThreshold = 8
 
-func buildSmallLookup(lang *Language) [][]smallActionPair {
+func buildSmallLookup(lang *Language, smallTokenLookup [][]uint16) [][]smallActionPair {
 	out := make([][]smallActionPair, len(lang.SmallParseTableMap))
 	table := lang.SmallParseTable
 	for smallIdx, offset := range lang.SmallParseTableMap {
@@ -16,14 +16,30 @@ func buildSmallLookup(lang *Language) [][]smallActionPair {
 		pos++
 		total := 0
 		countPos := pos
+		denseTokenRow := smallIdx < len(smallTokenLookup) && len(smallTokenLookup[smallIdx]) > 0
+		tokenCount := int(lang.TokenCount)
 		for i := uint16(0); i < groupCount; i++ {
 			if countPos+1 >= len(table) {
 				total = 0
 				break
 			}
 			symbolCount := int(table[countPos+1])
-			total += symbolCount
-			countPos += 2 + symbolCount
+			countPos += 2
+			if !denseTokenRow {
+				total += symbolCount
+				countPos += symbolCount
+				continue
+			}
+			for j := 0; j < symbolCount; j++ {
+				if countPos >= len(table) {
+					break
+				}
+				sym := int(table[countPos])
+				if sym >= tokenCount {
+					total++
+				}
+				countPos++
+			}
 		}
 		if total == 0 {
 			continue
@@ -41,7 +57,10 @@ func buildSmallLookup(lang *Language) [][]smallActionPair {
 				if pos >= len(table) {
 					break
 				}
-				pairs = append(pairs, smallActionPair{sym: table[pos], val: val})
+				sym := table[pos]
+				if !denseTokenRow || int(sym) >= tokenCount {
+					pairs = append(pairs, smallActionPair{sym: sym, val: val})
+				}
 				pos++
 			}
 		}
@@ -58,6 +77,7 @@ func buildSmallTokenLookup(lang *Language) [][]uint16 {
 	out := make([][]uint16, len(lang.SmallParseTableMap))
 	table := lang.SmallParseTable
 	tokenCount := int(lang.TokenCount)
+	seen := make([]int, tokenCount)
 	for smallIdx, offset := range lang.SmallParseTableMap {
 		pos := int(offset)
 		if pos >= len(table) {
@@ -65,30 +85,57 @@ func buildSmallTokenLookup(lang *Language) [][]uint16 {
 		}
 		groupCount := table[pos]
 		pos++
-		row := make([]uint16, tokenCount)
 		used := 0
+		maxSym := -1
+		seenStamp := smallIdx + 1
+		countPos := pos
 		for i := uint16(0); i < groupCount; i++ {
-			if pos+1 >= len(table) {
+			if countPos+1 >= len(table) {
 				break
 			}
-			val := table[pos]
-			symbolCount := table[pos+1]
-			pos += 2
+			symbolCount := table[countPos+1]
+			countPos += 2
 			for j := uint16(0); j < symbolCount; j++ {
-				if pos >= len(table) {
+				if countPos >= len(table) {
 					break
 				}
-				sym := int(table[pos])
+				sym := int(table[countPos])
 				if sym >= 0 && sym < tokenCount {
-					if row[sym] == 0 {
+					if seen[sym] != seenStamp {
+						seen[sym] = seenStamp
 						used++
+						if sym > maxSym {
+							maxSym = sym
+						}
 					}
-					row[sym] = val
 				}
-				pos++
+				countPos++
 			}
 		}
 		if used > smallTokenDenseThreshold {
+			rowLen := tokenCount
+			if maxSym+1 < rowLen {
+				rowLen = maxSym + 1
+			}
+			row := make([]uint16, rowLen)
+			for i := uint16(0); i < groupCount; i++ {
+				if pos+1 >= len(table) {
+					break
+				}
+				val := table[pos]
+				symbolCount := table[pos+1]
+				pos += 2
+				for j := uint16(0); j < symbolCount; j++ {
+					if pos >= len(table) {
+						break
+					}
+					sym := int(table[pos])
+					if sym >= 0 && sym < len(row) {
+						row[sym] = val
+					}
+					pos++
+				}
+			}
 			out[smallIdx] = row
 		}
 	}
@@ -140,12 +187,30 @@ func (p *Parser) forEachActionIndexInState(state StateID, visit func(sym Symbol,
 	if smallIdx < 0 || smallIdx >= len(p.language.SmallParseTableMap) {
 		return
 	}
+	visitedLookup := false
+	if smallIdx < len(p.smallTokenLookup) {
+		row := p.smallTokenLookup[smallIdx]
+		if len(row) > 0 {
+			visitedLookup = true
+			for sym, idx := range row {
+				if idx == 0 {
+					continue
+				}
+				if !visit(Symbol(sym), idx) {
+					return
+				}
+			}
+		}
+	}
 	if smallIdx < len(p.smallLookup) && len(p.smallLookup[smallIdx]) > 0 {
+		visitedLookup = true
 		for _, pair := range p.smallLookup[smallIdx] {
 			if !visit(Symbol(pair.sym), pair.val) {
 				return
 			}
 		}
+	}
+	if visitedLookup {
 		return
 	}
 
